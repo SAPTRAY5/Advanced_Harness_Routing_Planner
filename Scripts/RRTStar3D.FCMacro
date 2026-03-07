@@ -1,0 +1,106 @@
+import FreeCAD
+import random
+import Draft
+
+# ----------------------
+# PARAMETERS
+# ----------------------
+
+x_max = 200
+y_max = 2
+z_max = 200
+
+EPS = 15
+numNodes = 5000
+
+start = [10,0,10]
+goal  = [180,0,180]
+
+nodes = [start]
+parents = {0:None}
+
+# ----------------------
+# DISTANCE
+# ----------------------
+
+import math
+
+def dist(a,b):
+    return math.sqrt(
+        (a[0]-b[0])**2 +
+        (a[1]-b[1])**2 +
+        (a[2]-b[2])**2
+    )
+
+# ----------------------
+# STEER
+# ----------------------
+
+def steer(qrand,qnear):
+
+    d = dist(qrand,qnear)
+
+    if d < EPS:
+        return qrand
+
+    return [
+        qnear[0] + EPS*(qrand[0]-qnear[0])/d,
+        qnear[1] + EPS*(qrand[1]-qnear[1])/d,
+        qnear[2] + EPS*(qrand[2]-qnear[2])/d
+    ]
+
+
+# ----------------------
+# RRT LOOP
+# ----------------------
+
+for i in range(numNodes):
+
+    qrand = [
+        random.uniform(0,x_max),
+        random.uniform(0,y_max),
+        random.uniform(0,z_max)
+    ]
+
+    nearest = min(nodes,key=lambda n:dist(n,qrand))
+
+    qnew = steer(qrand,nearest)
+
+    nodes.append(qnew)
+
+    parents[len(nodes)-1] = nodes.index(nearest)
+
+    if dist(qnew,goal) < EPS:
+        nodes.append(goal)
+        parents[len(nodes)-1] = len(nodes)-2
+        break
+
+
+# ----------------------
+# BACKTRACK PATH
+# ----------------------
+
+path = []
+
+current = len(nodes)-1
+
+while current is not None:
+
+    path.append(nodes[current])
+
+    current = parents.get(current)
+
+path.reverse()
+
+print("Path points:",path)
+
+
+# ----------------------
+# VISUALIZE PATH
+# ----------------------
+
+points = [FreeCAD.Vector(p[0],p[1],p[2]) for p in path]
+
+Draft.makeWire(points,closed=False)
+
+FreeCAD.ActiveDocument.recompute()
