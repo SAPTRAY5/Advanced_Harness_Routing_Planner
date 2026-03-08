@@ -120,19 +120,34 @@ obstacles = []
 
 for obj in doc.Objects:
 
-    if obj.TypeId == "Mesh::Feature":
+    if obj.TypeId == "Mesh::Feature" and obj.Name != "Surface":
         obstacles.append(obj)
 
 # -------------------------------------------------
 # BOUNDING BOXES
 # -------------------------------------------------
 
+bbox_vis = []
 obstacle_boxes = []
 
 for obj in obstacles:
 
     bb = obj.Mesh.BoundBox
+    box = Part.makeBox(
+        bb.XLength,
+        bb.YLength,
+        bb.ZLength,
+        FreeCAD.Vector(bb.XMin, bb.YMin, bb.ZMin)
+    )
+    vis = doc.addObject("Part::Feature","BBox")
+    vis.Shape = box
+    bbox_vis.append(vis)
 
+    # Make them wireframe
+    for v in bbox_vis:
+        v.ViewObject.DisplayMode = "Wireframe"
+        v.ViewObject.LineColor = (1.0,0.0,0.0)
+    
     expanded = FreeCAD.BoundBox(
         bb.XMin - BRANCH_RADIUS,
         bb.YMin - BRANCH_RADIUS,
@@ -151,7 +166,7 @@ for obj in obstacles:
 def line_intersects_bbox(p1,p2,bbox):
 
     d = dist(p1,p2)
-    steps = max(10,int(d/2))
+    steps = int(d / (BRANCH_RADIUS * 0.5)) + 1
 
     for i in range(steps+1):
 
@@ -224,6 +239,35 @@ def clean_points(points, tol=1e-6):
 
     return cleaned
 
+def smooth_path(path, iterations=100):
+
+    import random
+
+    path = path.copy()
+
+    for _ in range(iterations):
+
+        if len(path) <= 2:
+            break
+
+        i = random.randint(0, len(path) - 2)
+        j = random.randint(i + 1, len(path) - 1)
+
+        if j == i + 1:
+            continue
+
+        p1 = path[i]
+        p2 = path[j]
+
+        # prevent huge shortcuts
+        if dist(p1,p2) > 80:
+            continue
+
+        if not is_collision(p1, p2):
+            path = path[:i+1] + path[j:]
+
+    return path
+    return path
 # -------------------------------------------------
 # RRT
 # -------------------------------------------------
@@ -283,6 +327,8 @@ path.insert(1,[start_offset.x,start_offset.y,start_offset.z])
 
 path.append([goal_offset.x,goal_offset.y,goal_offset.z])
 path.append([connector2_pos.x,connector2_pos.y,connector2_pos.z])
+
+path = smooth_path(path, 100)
 
 # -------------------------------------------------
 # CREATE SPLINE
