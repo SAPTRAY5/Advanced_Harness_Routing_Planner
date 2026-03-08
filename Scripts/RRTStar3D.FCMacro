@@ -3,6 +3,7 @@ import Part
 import Mesh
 import random
 import math
+import FreeCADGui
 
 doc = FreeCAD.ActiveDocument
 
@@ -24,14 +25,31 @@ z_max = 400
 # CONNECTOR DEFINITIONS
 # -------------------------------------------------
 
-connector1_pos = FreeCAD.Vector(10,0,10)
-connector2_pos = FreeCAD.Vector(100,0,380)
+# -------------------------------------------------
+# FETCH CONNECTOR POINTS FROM USER SELECTION
+# -------------------------------------------------
 
-connector1_normal = FreeCAD.Vector(0,0,1)
-connector2_normal = FreeCAD.Vector(0,0,-1)
+sel = FreeCADGui.Selection.getSelectionEx()
 
-connector1_normal.normalize()
-connector2_normal.normalize()
+if len(sel) < 2:
+    raise Exception("Please select two vertices or points")
+
+connector1_pos = sel[0].SubObjects[0].Point
+connector2_pos = sel[1].SubObjects[0].Point
+
+# connector1_pos = FreeCAD.Vector(10,0,10)
+# connector2_pos = FreeCAD.Vector(100,0,380)
+
+# connector1_normal = FreeCAD.Vector(0,0,1)
+# connector2_normal = FreeCAD.Vector(0,0,-1)
+
+# connector1_normal.normalize()
+# connector2_normal.normalize()
+direction = connector2_pos.sub(connector1_pos)
+direction.normalize()
+
+connector1_normal = direction
+connector2_normal = direction.negative()
 
 # -------------------------------------------------
 # OFFSET START / END
@@ -130,6 +148,11 @@ for obj in doc.Objects:
 bbox_vis = []
 obstacle_boxes = []
 
+bb_group = doc.getObject("BlackBoxes")
+
+if bb_group is None:
+    bb_group = doc.addObject("App::DocumentObjectGroup", "BlackBoxes")
+
 for obj in obstacles:
 
     bb = obj.Mesh.BoundBox
@@ -147,6 +170,7 @@ for obj in obstacles:
     for v in bbox_vis:
         v.ViewObject.DisplayMode = "Wireframe"
         v.ViewObject.LineColor = (1.0,0.0,0.0)
+        bb_group.addObject(v)
     
     expanded = FreeCAD.BoundBox(
         bb.XMin - BRANCH_RADIUS,

@@ -3,6 +3,7 @@ import Mesh
 import os
 import random
 from math import radians
+import Part
 
 # -----------------------------
 # DOCUMENT SETUP
@@ -20,6 +21,10 @@ project_dir = os.path.dirname(script_dir)
 # Models folder
 models_dir = os.path.join(project_dir, "Models")
 
+points_group = doc.getObject("ReferencePoints")
+
+if points_group is None:
+    points_group = doc.addObject("App::DocumentObjectGroup", "ReferencePoints")
 # -----------------------------
 # STL PATHS
 # -----------------------------
@@ -47,7 +52,7 @@ def random_position():
     z = random.uniform(workspace["zmin"], workspace["zmax"])
     return FreeCAD.Vector(x, y, z)
 
-def import_stl(path, name, scalex,scaley,scalez, position=None,rotation=None,color=None, transparency=0):
+def import_stl(path, name, scalex, scaley, scalez, position=None, rotation=None, color=None, transparency=0, create_point=True):
     mesh = Mesh.Mesh(path)
     mat = FreeCAD.Matrix()
     mat.scale(scalex, scaley, scalez)
@@ -67,8 +72,22 @@ def import_stl(path, name, scalex,scaley,scalez, position=None,rotation=None,col
     if color:
         obj.ViewObject.ShapeColor = color
         obj.ViewObject.Transparency = transparency
-    return obj
 
+    # -----------------------------
+    # CREATE POINT OBJECT
+    # -----------------------------
+    if create_point:
+        point = doc.addObject("Part::Vertex", f"Point_{name}")
+        point.X = obj.Placement.Base.x
+        point.Y = obj.Placement.Base.y
+        point.Z = obj.Placement.Base.z
+        
+        point.ViewObject.PointSize = 8
+        point.ViewObject.PointColor = (1.0, 0.0, 0.0)
+        points_group.addObject(point)
+
+    return obj
+    
 # -----------------------------
 # LOAD SURFACE (UNDER EVERYTHING)
 # -----------------------------
@@ -81,7 +100,8 @@ surface_obj = import_stl(
     position=FreeCAD.Vector(0,-2,400),
     rotation=FreeCAD.Rotation(FreeCAD.Vector(1,0,0), 270),
     color=(0.85, 0.65, 0.13),  # ochre yellow
-    transparency=20
+    transparency=20,
+    create_point=False
 )
 
 # -----------------------------
@@ -93,7 +113,8 @@ connector1_obj = import_stl(
     scalex=0.1,scaley=0.1,scalez=0.1,
     position=FreeCAD.Vector(10, 0, 10),
     color = (0.2, 0.4, 1.0), 
-    transparency=0
+    transparency=0,
+    create_point=True
 )
 
 # Fixed connector 2
@@ -102,8 +123,9 @@ connector2_obj = import_stl(
     "Connector2",
     scalex=0.1,scaley=0.1,scalez=0.1,
     position=FreeCAD.Vector(100, 0, 380),
-    color = (0.2, 0.4, 1.0),  # whitish
-    transparency=0
+    color = (0.2, 0.4, 1.0), 
+    transparency=0,
+    create_point=True
 )
 
 # -----------------------------
@@ -118,9 +140,9 @@ for i in range(NUM_HOUSINGS):
 # -----------------------------
 NUM_CONNECTOR = 25
 for i in range(NUM_CONNECTOR):
-    import_stl(connector3_path, f"Connector3_{i+1}", 0.1,0.1,0.1, rotation=FreeCAD.Rotation(FreeCAD.Vector(1,0,0), 180))
-    import_stl(connector1_path, f"Connector3_{i+1}", 0.1,0.1,0.1)
-    import_stl(connector1_path, f"Connector3_{i+1}", 0.1,0.1,0.1)
+    import_stl(connector3_path, f"Connector3_{i+1}", 0.1,0.1,0.1, rotation=FreeCAD.Rotation(FreeCAD.Vector(1,0,0), 180),create_point=True)
+    import_stl(connector1_path, f"Connector3_{i+1}", 0.1,0.1,0.1, create_point=True)
+    import_stl(connector2_path, f"Connector3_{i+1}", 0.1,0.1,0.1, create_point=True)
 # -----------------------------
 # RECOMPUTE DOCUMENT
 # -----------------------------
