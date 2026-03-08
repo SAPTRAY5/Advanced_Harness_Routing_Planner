@@ -1,29 +1,65 @@
 import FreeCAD
+import Part
+import Mesh
 import random
-import Draft
+import math
 
-# ----------------------
+doc = FreeCAD.ActiveDocument
+
+# -----------------------------
 # PARAMETERS
-# ----------------------
-
-x_max = 200
-y_max = 2
-z_max = 200
+# -----------------------------
 
 EPS = 15
-numNodes = 5000
+MAX_ITER = 5000
+GOAL_THRESHOLD = 20
+BRANCH_RADIUS = 2
 
-start = [10,0,10]
-goal  = [180,0,180]
+x_max = 300
+z_max = 500
 
-nodes = [start]
-parents = {0:None}
+# -----------------------------
+# CONNECTOR DEFINITIONS
+# -----------------------------
 
-# ----------------------
-# DISTANCE
-# ----------------------
+connector1_pos = FreeCAD.Vector(10,0,10)
+connector2_pos = FreeCAD.Vector(100,0,380)
 
-import math
+connector1_normal = FreeCAD.Vector(0,0,1)
+connector2_normal = FreeCAD.Vector(0,0,-1)
+
+connector1_normal.normalize()
+connector2_normal.normalize()
+
+# -----------------------------
+# OFFSET START / END
+# -----------------------------
+
+start_offset = connector1_pos + connector1_normal.multiply(EPS)
+goal_offset  = connector2_pos + connector2_normal.multiply(EPS)
+
+start_pos = [start_offset.x,start_offset.y,start_offset.z]
+goal_pos  = [goal_offset.x,goal_offset.y,goal_offset.z]
+
+y_plane = start_pos[1]
+
+# -----------------------------
+# NODE CLASS
+# -----------------------------
+
+class Node:
+    def __init__(self,x,y,z,parent=None):
+        self.x = x
+        self.y = y
+        self.z = z
+        self.parent = parent
+
+    def position(self):
+        return [self.x,self.y,self.z]
+
+# -----------------------------
+# UTILITY FUNCTIONS
+# -----------------------------
 
 def dist(a,b):
     return math.sqrt(
@@ -32,75 +68,205 @@ def dist(a,b):
         (a[2]-b[2])**2
     )
 
-# ----------------------
-# STEER
-# ----------------------
+def steer(qnear,qrand):
 
-def steer(qrand,qnear):
+    dx = qrand[0]-qnear[0]
+    dz = qrand[2]-qnear[2]
 
-    d = dist(qrand,qnear)
+    d = math.sqrt(dx*dx + dz*dz)
 
     if d < EPS:
         return qrand
 
+    scale = EPS/d
+
     return [
-        qnear[0] + EPS*(qrand[0]-qnear[0])/d,
-        qnear[1] + EPS*(qrand[1]-qnear[1])/d,
-        qnear[2] + EPS*(qrand[2]-qnear[2])/d
+        qnear[0] + dx*scale,
+        y_plane,
+        qnear[2] + dz*scale
     ]
 
+# -----------------------------
+# COLLECT STL OBSTACLES
+# -----------------------------
 
-# ----------------------
-# RRT LOOP
-# ----------------------
+obstacles = []
 
-for i in range(numNodes):
+for obj in doc.Objects:
 
-    qrand = [
-        random.uniform(0,x_max),
-        random.uniform(0,y_max),
-        random.uniform(0,z_max)
-    ]
+    if obj.Name == "Surface":
+        continue
 
-    nearest = min(nodes,key=lambda n:dist(n,qrand))
+    if obj.TypeId == "Mesh::Feature":
+        obstacles.append(obj)
 
-    qnew = steer(qrand,nearest)
+# -----------------------------
+# CREATE BOUNDING BOXES
+# -----------------------------
 
-    nodes.append(qnew)
+obstacle_boxes = []     # expanded boxes used for collision
+bbox_vis = []           # visual boxes (true bounding boxes)
 
-    parents[len(nodes)-1] = nodes.index(nearest)
+for obj in obstacles:
 
-    if dist(qnew,goal) < EPS:
-        nodes.append(goal)
-        parents[len(nodes)-1] = len(nodes)-2
+    bb = obj.Mesh.BoundBox
+
+    # ---------------------------------
+    # 1. TRUE BOUNDING BOX (visual only)
+    # ---------------------------------
+
+    visual_box = Part.makeBox(
+        bb.XLength,
+        bb.YLength,
+        bb.ZLength,
+        FreeCAD.Vector(bb.XMin, bb.YMin, bb.ZMin)
+    )
+
+    vis = doc.addObject("Part::Feature", "BBox_Visual")
+    vis.Shape = visual_box
+    bbox_vis.append(vis)
+
+    # ---------------------------------
+    # 2. EXPANDED BBOX (collision only)
+    # ---------------------------------
+
+    expanded = FreeCAD.BoundBox(
+        bb.XMin - BRANCH_RADIUS,
+        bb.YMin - BRANCH_RADIUS,
+        bb.ZMin - BRANCH_RADIUS,
+        bb.XMax + BRANCH_RADIUS,
+        bb.YMax + BRANCH_RADIUS,
+        bb.ZMax + BRANCH_RADIUS
+    )
+
+    obstacle_boxes.append(expanded)
+
+doc.recompute()
+
+# Make visual boxes wireframe
+for v in bbox_vis:
+    v.ViewObject.DisplayMode = "Wireframe"
+    v.ViewObject.LineColor = (1.0, 0.0, 0.0)
+
+# -----------------------------
+# SEGMENT vs BOUNDING BOX
+# -----------------------------
+
+def line_intersects_bbox(p1, p2, bbox):
+
+    minx, maxx = bbox.XMin, bbox.XMax
+    miny, maxy = bbox.YMin, bbox.YMax
+    minz, maxz = bbox.ZMin, bbox.ZMax
+
+    # distance of the segment
+    d = dist(p1, p2)
+
+    # number of samples (check roughly every 2 units)
+    steps = max(10, int(d / 2))
+
+    for i in range(steps + 1):
+
+        t = i / steps
+
+        x = p1[0] + (p2[0] - p1[0]) * t
+        y = p1[1] + (p2[1] - p1[1]) * t
+        z = p1[2] + (p2[2] - p1[2]) * t
+
+        if (minx <= x <= maxx and
+            miny <= y <= maxy and
+            minz <= z <= maxz):
+            return True
+
+    return False
+
+# -----------------------------
+# COLLISION CHECK
+# -----------------------------
+
+def is_collision(p1,p2):
+
+    for bbox in obstacle_boxes:
+
+        if line_intersects_bbox(p1,p2,bbox):
+            return True
+
+    return False
+
+# -----------------------------
+# RRT
+# -----------------------------
+
+nodes = []
+nodes.append(Node(start_pos[0],start_pos[1],start_pos[2]))
+
+goal_node = None
+
+for i in range(MAX_ITER):
+
+    if random.random() < 0.2:
+        qrand = goal_pos
+    else:
+        qrand = [
+            random.uniform(0,x_max),
+            y_plane,
+            random.uniform(0,z_max)
+        ]
+
+    nearest = min(
+        nodes,
+        key=lambda n: dist(n.position(),qrand)
+    )
+
+    qnear = nearest.position()
+    qnew = steer(qnear,qrand)
+
+    # COLLISION CHECK
+    if is_collision(qnear,qnew):
+        continue
+
+    new_node = Node(qnew[0],qnew[1],qnew[2],nearest)
+    nodes.append(new_node)
+
+    if dist(qnew,goal_pos) < GOAL_THRESHOLD:
+        goal_node = Node(goal_pos[0],goal_pos[1],goal_pos[2],new_node)
+        nodes.append(goal_node)
+        print("Goal reached")
         break
 
+if goal_node is None:
+    raise Exception("Failed to reach goal")
 
-# ----------------------
+# -----------------------------
 # BACKTRACK PATH
-# ----------------------
+# -----------------------------
 
 path = []
+current = goal_node
 
-current = len(nodes)-1
-
-while current is not None:
-
-    path.append(nodes[current])
-
-    current = parents.get(current)
+while current:
+    path.append(current.position())
+    current = current.parent
 
 path.reverse()
 
-print("Path points:",path)
+# -----------------------------
+# ADD CONNECTOR POINTS
+# -----------------------------
 
+path.insert(0,[connector1_pos.x,connector1_pos.y,connector1_pos.z])
+path.append([connector2_pos.x,connector2_pos.y,connector2_pos.z])
 
-# ----------------------
-# VISUALIZE PATH
-# ----------------------
+# -----------------------------
+# CREATE FREECAD PATH
+# -----------------------------
 
 points = [FreeCAD.Vector(p[0],p[1],p[2]) for p in path]
 
-Draft.makeWire(points,closed=False)
+wire = Part.makePolygon(points)
 
-FreeCAD.ActiveDocument.recompute()
+path_obj = doc.addObject("Part::Feature","RRT_Path")
+path_obj.Shape = wire
+
+doc.recompute()
+
+print("Path created with",len(points),"points")
