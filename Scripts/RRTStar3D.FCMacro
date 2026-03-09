@@ -7,27 +7,13 @@ import FreeCADGui
 
 doc = FreeCAD.ActiveDocument
 
-# -------------------------------------------------
-# PARAMETERS
-# -------------------------------------------------
-
 EPS = 15
 MAX_ITER = 5000
 GOAL_THRESHOLD = 20
 BRANCH_RADIUS = 0.25
-
 LINE_BIAS_WIDTH = 80
-
 x_max = 400
 z_max = 400
-
-# -------------------------------------------------
-# CONNECTOR DEFINITIONS
-# -------------------------------------------------
-
-# -------------------------------------------------
-# FETCH CONNECTOR POINTS FROM USER SELECTION
-# -------------------------------------------------
 
 sel = FreeCADGui.Selection.getSelectionEx()
 
@@ -37,23 +23,11 @@ if len(sel) < 2:
 connector1_pos = sel[0].SubObjects[0].Point
 connector2_pos = sel[1].SubObjects[0].Point
 
-# connector1_pos = FreeCAD.Vector(10,0,10)
-# connector2_pos = FreeCAD.Vector(100,0,380)
-
-# connector1_normal = FreeCAD.Vector(0,0,1)
-# connector2_normal = FreeCAD.Vector(0,0,-1)
-
-# connector1_normal.normalize()
-# connector2_normal.normalize()
 direction = connector2_pos.sub(connector1_pos)
 direction.normalize()
 
 connector1_normal = direction
 connector2_normal = direction.negative()
-
-# -------------------------------------------------
-# OFFSET START / END
-# -------------------------------------------------
 
 start_offset = connector1_pos + connector1_normal.multiply(EPS)
 goal_offset  = connector2_pos + connector2_normal.multiply(EPS)
@@ -63,14 +37,8 @@ goal_pos  = [goal_offset.x,goal_offset.y,goal_offset.z]
 
 y_plane = start_pos[1]
 
-# -------------------------------------------------
-# NODE CLASS
-# -------------------------------------------------
-
 class Node:
-
     def __init__(self,x,y,z,parent=None,cost=0):
-
         self.x = x
         self.y = y
         self.z = z
@@ -78,72 +46,41 @@ class Node:
         self.cost = cost
 
     def position(self):
-
         return [self.x,self.y,self.z]
 
-# -------------------------------------------------
-# DISTANCE
-# -------------------------------------------------
-
 def dist(a,b):
-
     return math.sqrt(
         (a[0]-b[0])**2 +
         (a[1]-b[1])**2 +
         (a[2]-b[2])**2
     )
 
-# -------------------------------------------------
-# DISTANCE FROM GOAL LINE
-# -------------------------------------------------
-
 def point_to_line_distance(p,a,b):
-
     ax,az = a[0],a[2]
     bx,bz = b[0],b[2]
     px,pz = p[0],p[2]
-
     num = abs((bz-az)*px - (bx-ax)*pz + bx*az - bz*ax)
     den = math.sqrt((bz-az)**2 + (bx-ax)**2)
-
     return num/den
 
-# -------------------------------------------------
-# STEERING
-# -------------------------------------------------
-
 def steer(qnear,qrand):
-
     dx = qrand[0]-qnear[0]
     dz = qrand[2]-qnear[2]
-
     d = math.sqrt(dx*dx + dz*dz)
-
     if d < EPS:
         return qrand
-
     scale = EPS/d
-
     return [
         qnear[0] + dx*scale,
         y_plane,
         qnear[2] + dz*scale
     ]
 
-# -------------------------------------------------
-# OBSTACLE COLLECTION
-# -------------------------------------------------
-
 obstacles = []
 
 for obj in doc.Objects:
-
     if obj.TypeId == "Mesh::Feature" and obj.Name != "Surface":
         obstacles.append(obj)
-
-# -------------------------------------------------
-# BOUNDING BOXES
-# -------------------------------------------------
 
 bbox_vis = []
 obstacle_boxes = []
@@ -156,22 +93,23 @@ if bb_group is None:
 for obj in obstacles:
 
     bb = obj.Mesh.BoundBox
+
     box = Part.makeBox(
         bb.XLength,
         bb.YLength,
         bb.ZLength,
         FreeCAD.Vector(bb.XMin, bb.YMin, bb.ZMin)
     )
+
     vis = doc.addObject("Part::Feature","BBox")
     vis.Shape = box
     bbox_vis.append(vis)
 
-    # Make them wireframe
     for v in bbox_vis:
         v.ViewObject.DisplayMode = "Wireframe"
         v.ViewObject.LineColor = (1.0,0.0,0.0)
         bb_group.addObject(v)
-    
+
     expanded = FreeCAD.BoundBox(
         bb.XMin - BRANCH_RADIUS,
         bb.YMin - BRANCH_RADIUS,
@@ -183,14 +121,10 @@ for obj in obstacles:
 
     obstacle_boxes.append(expanded)
 
-# -------------------------------------------------
-# COLLISION CHECK
-# -------------------------------------------------
-
 def line_intersects_bbox(p1,p2,bbox):
 
     d = dist(p1,p2)
-    steps = int(d / (BRANCH_RADIUS * 0.5)) + 1
+    steps = int(d / (BRANCH_RADIUS * 0.25)) + 1
 
     for i in range(steps+1):
 
@@ -207,19 +141,13 @@ def line_intersects_bbox(p1,p2,bbox):
 
     return False
 
-
 def is_collision(p1,p2):
 
     for bbox in obstacle_boxes:
-
         if line_intersects_bbox(p1,p2,bbox):
             return True
 
     return False
-
-# -------------------------------------------------
-# RANDOM SAMPLING
-# -------------------------------------------------
 
 def sample_point():
 
@@ -236,10 +164,6 @@ def sample_point():
         if d < LINE_BIAS_WIDTH or random.random() < 0.2:
             return qrand
 
-# -------------------------------------------------
-# SPLINE CREATION
-# -------------------------------------------------
-
 def create_stable_spline(points):
 
     params = [0]
@@ -252,7 +176,7 @@ def create_stable_spline(points):
     spline.interpolate(points,Parameters=params)
 
     return spline
-    
+
 def clean_points(points, tol=1e-6):
 
     cleaned = [points[0]]
@@ -283,18 +207,13 @@ def smooth_path(path, iterations=100):
         p1 = path[i]
         p2 = path[j]
 
-        # prevent huge shortcuts
-        if dist(p1,p2) > 80:
+        if dist(p1,p2) > 50:
             continue
 
         if not is_collision(p1, p2):
             path = path[:i+1] + path[j:]
 
     return path
-    return path
-# -------------------------------------------------
-# RRT
-# -------------------------------------------------
 
 nodes = []
 nodes.append(Node(start_pos[0],start_pos[1],start_pos[2]))
@@ -327,10 +246,6 @@ for i in range(MAX_ITER):
 if goal_node is None:
     raise Exception("Failed to reach goal")
 
-# -------------------------------------------------
-# BACKTRACK PATH
-# -------------------------------------------------
-
 path = []
 
 current = goal_node
@@ -342,25 +257,48 @@ while current:
 
 path.reverse()
 
-# -------------------------------------------------
-# FORCE CONNECTOR NORMAL EXIT/ENTRY
-# -------------------------------------------------
-
 path.insert(0,[connector1_pos.x,connector1_pos.y,connector1_pos.z])
 path.insert(1,[start_offset.x,start_offset.y,start_offset.z])
 
 path.append([goal_offset.x,goal_offset.y,goal_offset.z])
 path.append([connector2_pos.x,connector2_pos.y,connector2_pos.z])
 
-path = smooth_path(path, 100)
+original_path = path.copy()
+smoothed_path = smooth_path(path, 100)
 
-# -------------------------------------------------
-# CREATE SPLINE
-# -------------------------------------------------
+collision_found = False
 
+for i in range(len(smoothed_path)-1):
+    if is_collision(smoothed_path[i], smoothed_path[i+1]):
+        collision_found = True
+        break
+
+if collision_found:
+    path = original_path
+    print("Collision found")
+else:
+    path = smoothed_path
+    print("Smoothened Path")
 points = [FreeCAD.Vector(p[0],p[1],p[2]) for p in path]
 
 points = clean_points(points)
+
+point_group = doc.getObject("SplinePoints")
+
+if point_group is None:
+    point_group = doc.addObject("App::DocumentObjectGroup","SplinePoints")
+
+for i,p in enumerate(points):
+
+    v = doc.addObject("Part::Vertex", f"SplinePoint_{i}")
+    v.X = p.x
+    v.Y = p.y
+    v.Z = p.z
+
+    v.ViewObject.PointColor = (0.0,0.0,1.0)
+    v.ViewObject.PointSize = 6
+
+    point_group.addObject(v)
 
 if len(points) < 2:
     raise Exception("Not enough points for spline")
@@ -374,10 +312,6 @@ path_obj.Shape = edge
 
 wire = Part.Wire([edge])
 
-# -------------------------------------------------
-# CREATE PIPE PROFILE
-# -------------------------------------------------
-
 start_param = spline.FirstParameter
 
 start_point = spline.value(start_param)
@@ -388,10 +322,6 @@ tangent.normalize()
 circle = Part.makeCircle(BRANCH_RADIUS,start_point,tangent)
 
 profile = Part.Wire([circle])
-
-# -------------------------------------------------
-# SWEEP PIPE
-# -------------------------------------------------
 
 pipe = wire.makePipeShell([profile],True,False)
 
