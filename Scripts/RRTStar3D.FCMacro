@@ -283,50 +283,68 @@ points = [FreeCAD.Vector(p[0],p[1],p[2]) for p in path]
 
 points = clean_points(points)
 
+raw_points = [FreeCAD.Vector(p[0],p[1],p[2]) for p in points]
+
+if len(raw_points) >= 2:
+
+    raw_edges = []
+
+    for i in range(len(raw_points)-1):
+        e = Part.makeLine(raw_points[i], raw_points[i+1])
+        raw_edges.append(e)
+
+    raw_wire = Part.Wire(raw_edges)
+
+    raw_obj = doc.addObject("Part::Feature","RawRRTPath")
+    raw_obj.Shape = raw_wire
+
+    raw_obj.ViewObject.LineColor = (0.0,1.0,0.0)  # Green
+    raw_obj.ViewObject.LineWidth = 2
+
 point_group = doc.getObject("SplinePoints")
 
-if point_group is None:
-    point_group = doc.addObject("App::DocumentObjectGroup","SplinePoints")
+# if point_group is None:
+    # point_group = doc.addObject("App::DocumentObjectGroup","SplinePoints")
 
-for i,p in enumerate(points):
+# for i,p in enumerate(points):
 
-    v = doc.addObject("Part::Vertex", f"SplinePoint_{i}")
-    v.X = p.x
-    v.Y = p.y
-    v.Z = p.z
+    # v = doc.addObject("Part::Vertex", f"SplinePoint_{i}")
+    # v.X = p.x
+    # v.Y = p.y
+    # v.Z = p.z
 
-    v.ViewObject.PointColor = (0.0,0.0,1.0)
-    v.ViewObject.PointSize = 6
+    # v.ViewObject.PointColor = (0.0,0.0,1.0)
+    # v.ViewObject.PointSize = 6
 
-    point_group.addObject(v)
+    # point_group.addObject(v)
 
-if len(points) < 2:
-    raise Exception("Not enough points for spline")
+# if len(points) < 2:
+    # raise Exception("Not enough points for spline")
 
-spline = create_stable_spline(points)
+# spline = create_stable_spline(points)
 
-edge = spline.toShape()
+# edge = spline.toShape()
 
-path_obj = doc.addObject("Part::Feature","HarnessSpline")
-path_obj.Shape = edge
+# path_obj = doc.addObject("Part::Feature","HarnessSpline")
+# path_obj.Shape = edge
 
-wire = Part.Wire([edge])
+# wire = Part.Wire([edge])
 
-start_param = spline.FirstParameter
+# start_param = spline.FirstParameter
 
-start_point = spline.value(start_param)
+# start_point = spline.value(start_param)
 
-tangent = spline.tangent(start_param)[0]
-tangent.normalize()
+# tangent = spline.tangent(start_param)[0]
+# tangent.normalize()
 
-circle = Part.makeCircle(BRANCH_RADIUS,start_point,tangent)
+# circle = Part.makeCircle(BRANCH_RADIUS,start_point,tangent)
 
-profile = Part.Wire([circle])
+# profile = Part.Wire([circle])
 
-pipe = wire.makePipeShell([profile],True,False)
+# pipe = wire.makePipeShell([profile],True,False)
 
-pipe_obj = doc.addObject("Part::Feature","BranchPipe")
-pipe_obj.Shape = pipe
+# pipe_obj = doc.addObject("Part::Feature","BranchPipe")
+# pipe_obj.Shape = pipe
 
 doc.recompute()
 
